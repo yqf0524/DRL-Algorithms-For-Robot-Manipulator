@@ -6,7 +6,7 @@ class iiwa(object):
     """
     This class contains all iiwa needed parameters and functions.
 
-    All of dynamic parameters of iiwa come from the paper "Dynamic Identification of
+    All of dynamic parameters of iiwa refer to the paper "Dynamic Identification of
     the KUKA LBR iiwa Robot With Retrieval of Physical Parameters Using Global Optimization".
     Link: https://ieeexplore.ieee.org/document/9112185
 
