@@ -29,10 +29,15 @@ class MainEnv:
         reward_range: A tuple corresponding to the min and max possible rewards
     """
 
+    iiwa = KinematicModel()
     reward_range = (-float('inf'), float('inf'))
     # Set these in ALL subclasses
     action_space = None
+    action_space_high = None
+    action_space_low = None
     observation_space = None
+    observation_space_high = None
+    observation_space_low = None
 
     def reset(self):
         """
@@ -109,11 +114,16 @@ class MainEnv:
 
 class PositionControl(MainEnv):
     def __init__(self):
-        self.iiwa = KinematicModel()
+        self.action_space = len(self.iiwa.current_configuration)
+        self.action_space_high = self.iiwa.velocity_limit
+        self.action_space_low = -self.iiwa.velocity_limit
+        self.observation_space = len(self.iiwa.current_configuration)
+        self.observation_space_high = self.iiwa.joint_limit
+        self.observation_space_low = -self.iiwa.joint_limit
         self.current_action = np.zeros(7)
-        self.target_position = np.zeros([3, 1])
-        self.target_so3 = np.zeros([3, 3])
-        self.target_rpy = self.iiwa.so3_to_rpy(self.target_so3)
+        self.start_position = self.iiwa.current_ee_position
+        self.target_position = np.zeros(3)
+        self.target_rpy = self.iiwa.current_ee_rpy
         self.tol_position = 1e-4  # 0.0001 meter = 0.1 mm, Euclidean Distance
         self.tol_orientation = 2e-3  # approximate 0.115, Euclidean Distance
         self.is_done_counter = 0
@@ -123,19 +133,23 @@ class PositionControl(MainEnv):
         return current_state
 
     def step(self, action):
+        action = self.iiwa.clip_velocity(action)
         next_state = self.iiwa.current_configuration + action
-        collision = self.iiwa.check_collision(next_state)
+        # collision = self.iiwa.check_collision(next_state)
+        in_joint_limit, next_state = self.iiwa.check_joint_limit(next_state)
         info = "Everything is fine."
-        if collision:
-            reward = -100.0
-            done = True
-            info = "Oops, a collision has occurred."
-            return next_state, reward, done, info
+        # if collision:
+        #     reward = -100.0
+        #     done = True
+        #     info = "Oops, a collision has occurred."
+        #     return next_state, reward, done, info
         self.iiwa.current_configuration = next_state
         self.iiwa.update_kinematic()
         ee_rpy = self.iiwa.current_ee_rpy
         ee_position = self.iiwa.current_ee_position
         reward, done = self.compute_reward(ee_rpy, ee_position)
+        if not in_joint_limit:
+            reward += -0.1
         return next_state, reward, done, info
 
     def render(self):
@@ -143,7 +157,7 @@ class PositionControl(MainEnv):
         self.iiwa.display_robot(config)
 
     def compute_reward(self, ee_rpy, ee_position):
-        rpy_error = np.linalg.norm(ee_rpy - self.target_so3)
+        rpy_error = np.linalg.norm(ee_rpy - self.target_rpy)
         position_error = np.linalg.norm(ee_position - self.target_position)
         reward = -(rpy_error + position_error)
         is_done = self._is_done(rpy_error, position_error)
@@ -196,14 +210,14 @@ class ForceControl(MainEnv):
 
 
 class KUKAiiwa:
-    control_types = {
-        "PositionControl", PositionControl,
-        "VelocityControl", VelocityControl,
-        "ForceControl", ForceControl}
+    subclasses = {
+        "PositionControl": PositionControl,
+        "VelocityControl": VelocityControl,
+        "ForceControl": ForceControl}
 
     def __new__(cls, control_type: str):
         try:
-            return cls.control_types[control_type]()
+            return cls.subclasses[control_type]()
         except TypeError as T:
             print("No class name: ", control_type)
             print("classes: PositionControl, VelocityControl, ForceControl.")
