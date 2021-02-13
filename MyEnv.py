@@ -28,8 +28,6 @@ class MainEnv:
         observation_space: The Space object corresponding to valid observations
         reward_range: A tuple corresponding to the min and max possible rewards
     """
-
-    iiwa = KinematicModel()
     reward_range = (-float('inf'), float('inf'))
     # Set these in ALL subclasses
     action_space = None
@@ -114,12 +112,13 @@ class MainEnv:
 
 class PositionControl(MainEnv):
     def __init__(self):
+        self.iiwa = KinematicModel()
         self.action_space = len(self.iiwa.current_configuration)
-        self.action_space_high = self.iiwa.velocity_limit
-        self.action_space_low = -self.iiwa.velocity_limit
+        self.action_space_high = np.deg2rad(self.iiwa.velocity_limit / 100)  # 100 hz
+        self.action_space_low = np.deg2rad(-self.iiwa.velocity_limit / 100)  # 100 hz
         self.observation_space = len(self.iiwa.current_configuration)
-        self.observation_space_high = self.iiwa.joint_limit
-        self.observation_space_low = -self.iiwa.joint_limit
+        self.observation_space_high = np.deg2rad(self.iiwa.joint_limit)
+        self.observation_space_low = np.deg2rad(-self.iiwa.joint_limit)
         self.current_action = np.zeros(7)
         self.start_position = self.iiwa.current_ee_position
         self.target_position = np.zeros(3)
@@ -167,10 +166,10 @@ class PositionControl(MainEnv):
         if orientation_error <= self.tol_orientation and position_error <= self.tol_position:
             self.is_done_counter += 1
             if self.is_done_counter > 5:
-                return True
+                return 1
             else:
                 self.is_done_counter = 0
-                return False
+                return 0
 
 
 class VelocityControl(MainEnv):
@@ -219,5 +218,6 @@ class KUKAiiwa:
         try:
             return cls.subclasses[control_type]()
         except TypeError as T:
+            # print(T.__doc__)
             print("No class name: ", control_type)
-            print("classes: PositionControl, VelocityControl, ForceControl.")
+            print("subclasses: PositionControl, VelocityControl, ForceControl.")

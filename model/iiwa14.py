@@ -24,12 +24,11 @@ class Model:
         self.velocity_scale = 0.1
         self.velocity_limit = self.velocity_scale * \
                               np.rad2deg(np.array([85, 85, 100, 75, 130, 135, 135]))
-        self.link_length = np.array([0.36, 0.42, 0.4, 0.126], dtype=np.float32)
         self.DH_params = np.array([
             [0.0, 0.36, 0.0, -np.pi / 2],
             [0.0, 0.00, 0.0, np.pi / 2],
-            [0.0, 0.42, 0.0, -np.pi / 2],
-            [0.0, 0.00, 0.0, np.pi / 2],
+            [0.0, 0.42, 0.0, np.pi / 2],
+            [0.0, 0.00, 0.0, -np.pi / 2],
             [0.0, 0.40, 0.0, -np.pi / 2],
             [0.0, 0.00, 0.0, np.pi / 2],
             [0.0, 0.126, 0.0, 0.0]], dtype=np.float32)
@@ -100,7 +99,9 @@ class KinematicModel(Model):
 
     def __init__(self):
         super(KinematicModel, self).__init__()
-        self.current_configuration = np.deg2rad([-120, -90, 78, 62, -83, -100, 148])
+        self.current_configuration = np.deg2rad(
+            [0, 60, 0, -61.9587, 0, 60, 0])
+        # [-120, -60, 78, 62, -83, -100, 148])
         self.current_ee_position = None
         self.current_ee_rpy = None
         self.update_kinematic()
@@ -115,10 +116,10 @@ class KinematicModel(Model):
         """
         ee_se3 = np.eye(4)
         theta = configuration  # + np.transpose(self.DH_params[:, 0])
-        length = np.transpose(self.DH_params[:, 1]) + link_length_noise
+        length = self.DH_params[:, 1] + link_length_noise
         offset = [0, 0, 0, 0, 0, 0, 0]  # np.transpose(self.DH_params[:, 2])
-        alpha = np.transpose(self.DH_params[:, 3])
-        for i in range(len(theta)):
+        alpha = self.DH_params[:, 3]
+        for i in range(len(configuration)):
             ee_se3 = np.matmul(
                 ee_se3, self._homo_matrix(theta[i], length[i], offset[i], alpha[i]))
         return ee_se3
@@ -146,13 +147,26 @@ class KinematicModel(Model):
 
     def update_kinematic(self):
         current_ee_se3 = self.forward_kinematic(
-            self.current_configuration, self.link_gaussian_noise(0, 2, 7))
+            self.current_configuration, self.link_noise(0, 0.0002, 7))
         current_ee_so3 = current_ee_se3[0:3, 0:3]
-        self.current_ee_position = np.transpose(current_ee_se3[3, 0:3])
+        self.current_ee_position = current_ee_se3[0:3, 3]
         self.current_ee_rpy = self.so3_to_rpy(current_ee_so3)
 
-    def link_gaussian_noise(self, mean, var, shape):
-        return np.random.normal(mean, var, shape)
+    def link_noise(self, loc, scale, size):
+        """
+        Create a random noise to simulate environment influence and montage error
+
+        :param scale: float or array_like of floats
+                Mean ("centre") of the distribution.
+        :param loc: float or array_like of floats
+                Standard deviation (spread or "width") of the distribution. Must be
+                non-negative.
+        :param size: int or tuple of ints, optional，corresponds to noise target
+        :return: a scaled noise array
+        """
+        # noise = [0, 0.02 mm] = 0.0002 m
+        noise = np.random.normal(loc, scale, size)
+        return noise
 
 
 class DynamicModel(Model):

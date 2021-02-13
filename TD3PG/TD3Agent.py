@@ -7,14 +7,14 @@ import torch.nn.functional as F
 
 
 class TD3Agent:
-    def __init__(self, alpha, beta, input_dims, tau, env,
-                 gamma=0.99, update_actor_interval=2, warmup=1000,
-                 n_actions=2, max_size=1000000, layer1_size=400,
-                 layer2_size=300, batch_size=100, noise=0.1):
+    def __init__(self, alpha, beta, input_dims, tau, env, layer1_size,
+                 layer2_size, layer3_size, gamma=0.99,
+                 update_actor_interval=3, warmup=1000, n_actions=7,
+                 max_size=1000000, batch_size=100, noise=0.01):
         self.gamma = gamma
         self.tau = tau
-        self.max_action = env.action_space.high
-        self.min_action = env.action_space.low
+        self.max_action = env.action_space_high
+        self.min_action = env.action_space_low
         self.memory = ReplayBuffer(max_size, input_dims, n_actions)
         self.batch_size = batch_size
         self.learn_step_cntr = 0
@@ -23,35 +23,36 @@ class TD3Agent:
         self.n_actions = n_actions
         self.update_actor_iter = update_actor_interval
 
-        self.actor = ActorNetwork(alpha, input_dims, layer1_size,
-                                  layer2_size, n_actions=n_actions, name='actor')
+        self.actor = ActorNetwork(alpha, input_dims, layer1_size, layer2_size,
+                                  layer3_size, n_actions=n_actions, name='actor')
 
-        self.critic_1 = CriticNetwork(beta, input_dims, layer1_size,
-                                      layer2_size, n_actions=n_actions, name='critic_1')
-        self.critic_2 = CriticNetwork(beta, input_dims, layer1_size,
-                                      layer2_size, n_actions=n_actions, name='critic_2')
+        self.critic_1 = CriticNetwork(beta, input_dims, layer1_size, layer2_size,
+                                      layer3_size, n_actions=n_actions, name='critic_1')
+        self.critic_2 = CriticNetwork(beta, input_dims, layer1_size, layer2_size,
+                                      layer3_size, n_actions=n_actions, name='critic_2')
 
-        self.target_actor = ActorNetwork(alpha, input_dims, layer1_size,
-                                         layer2_size, n_actions=n_actions, name='target_actor')
-        self.target_critic_1 = CriticNetwork(beta, input_dims, layer1_size,
-                                             layer2_size, n_actions=n_actions, name='target_critic_1')
-        self.target_critic_2 = CriticNetwork(beta, input_dims, layer1_size,
-                                             layer2_size, n_actions=n_actions, name='target_critic_2')
+        self.target_actor = ActorNetwork(alpha, input_dims, layer1_size, layer2_size,
+                                         layer3_size, n_actions=n_actions, name='target_actor')
 
-        self.noise = noise
-        self.update_network_parameters(tau=1)
+        self.target_critic_1 = CriticNetwork(beta, input_dims, layer1_size, layer2_size,
+                                             layer3_size, n_actions=n_actions, name='target_critic_1')
+        self.target_critic_2 = CriticNetwork(beta, input_dims, layer1_size, layer2_size,
+                                             layer3_size, n_actions=n_actions, name='target_critic_2')
+
+        self.noise = np.deg2rad(noise)  # noise = 0.01 degree
+        self.update_network_parameters(tau=0.99)
 
     def choose_action(self, observation):
         if self.time_step < self.warmup:
-            mu = T.tensor(np.random.normal(scale=self.noise,
-                                           size=(self.n_actions,)))
+            mu = T.tensor(np.random.normal(scale=self.noise, size=(self.n_actions,))
+                          ).to(self.actor.device)
         else:
             state = T.tensor(observation, dtype=T.float).to(self.actor.device)
             mu = self.actor.forward(state).to(self.actor.device)
-        mu_prime = mu + T.tensor(np.random.normal(scale=self.noise),
+        mu_prime = mu + T.tensor(np.random.normal(scale=self.noise, size=7),
                                  dtype=T.float).to(self.actor.device)
 
-        mu_prime = T.clamp(mu_prime, self.min_action[0], self.max_action[0])
+        # mu_prime = T.clamp(mu_prime, self.min_action, self.max_action)
         self.time_step += 1
 
         return mu_prime.cpu().detach().numpy()
@@ -73,10 +74,10 @@ class TD3Agent:
 
         target_actions = self.target_actor.forward(state_)
         target_actions = target_actions + \
-                         T.clamp(T.tensor(np.random.normal(scale=0.2)), -0.5, 0.5)
-        target_actions = T.clamp(target_actions, self.min_action[0],
-                                 self.max_action[0])
-
+                         T.clamp(T.tensor(np.random.normal(scale=self.noise)),
+                                 -2 * self.noise, 2 * self.noise)
+        # target_actions = T.clamp(target_actions, self.min_action, self.max_action)
+        # target_actions = T.tensor(np.clip(target_actions.numpy(), self.min_action, self.max_action))
         q1_ = self.target_critic_1.forward(state_, target_actions)
         q2_ = self.target_critic_2.forward(state_, target_actions)
 
