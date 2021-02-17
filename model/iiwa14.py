@@ -20,10 +20,10 @@ class Model:
         """
 
     def __init__(self):
-        self.joint_limit = np.rad2deg(np.array([168, 118, 168, 118, 168, 118, 173]))
+        self.joint_limit = np.deg2rad(np.array([168, 118, 168, 118, 168, 118, 173]))
         self.velocity_scale = 0.1
         self.velocity_limit = self.velocity_scale * \
-                              np.rad2deg(np.array([85, 85, 100, 75, 130, 135, 135]))
+                              np.deg2rad(np.array([85, 85, 100, 75, 130, 135, 135]))
         self.DH_params = np.array([
             [0.0, 0.36, 0.0, -np.pi / 2],
             [0.0, 0.00, 0.0, np.pi / 2],
@@ -49,11 +49,10 @@ class Model:
         rpy = r.as_euler("xyz")
         return rpy
 
-    def check_joint_limit(self, configuration):
-        in_joint_limit = (np.abs(configuration) <= self.joint_limit).all()
-        if not in_joint_limit:
-            return False, np.clip(configuration, -self.joint_limit, self.joint_limit)
-        return True, configuration
+    def clip_joint_position(self, configuration):
+        new_config = np.clip(configuration, -self.joint_limit, self.joint_limit)
+        in_joint_limit = (new_config == configuration).all()
+        return in_joint_limit, new_config
 
     def clip_velocity(self, action):
         """
@@ -63,6 +62,7 @@ class Model:
         :param action: action will be taken based on current observation
         :return: the clipped action
         """
+        action = np.multiply(action, self.velocity_limit)
         clip_action = np.clip(action, -self.velocity_limit, self.velocity_limit)
         return clip_action
 
@@ -99,9 +99,14 @@ class KinematicModel(Model):
 
     def __init__(self):
         super(KinematicModel, self).__init__()
-        self.current_configuration = np.deg2rad(
-            [0, 60, 0, -61.9587, 0, 60, 0])
+        self.start_configuration = np.deg2rad(
+            np.array([0, 60, 0, -61.9587, 0, 60, 0]))
         # [-120, -60, 78, 62, -83, -100, 148])
+        self.start_ee_se3 = self.forward_kinematic(self.start_configuration)
+        self.start_ee_position = self.start_ee_se3[0:3, 3]
+        self.start_ee_rpy = self.so3_to_rpy(self.start_ee_se3[0:3, 0:3])
+
+        self.current_configuration = self.start_configuration
         self.current_ee_position = None
         self.current_ee_rpy = None
         self.update_kinematic()
@@ -116,7 +121,7 @@ class KinematicModel(Model):
         """
         ee_se3 = np.eye(4)
         theta = configuration  # + np.transpose(self.DH_params[:, 0])
-        length = self.DH_params[:, 1] + link_length_noise
+        length = self.DH_params[:, 1]
         offset = [0, 0, 0, 0, 0, 0, 0]  # np.transpose(self.DH_params[:, 2])
         alpha = self.DH_params[:, 3]
         for i in range(len(configuration)):
@@ -142,12 +147,12 @@ class KinematicModel(Model):
             [np.sin(theta), np.cos(theta) * np.cos(alpha),
              -np.cos(theta) * np.sin(alpha), length * np.sin(theta)],
             [0.0, np.sin(alpha), np.cos(alpha), offset],
-            [0.0, 0.0, 0.0, 1.0]], dtype=np.float32)
+            [0.0, 0.0, 0.0, 1.0]])
         return tr
 
     def update_kinematic(self):
         current_ee_se3 = self.forward_kinematic(
-            self.current_configuration, self.link_noise(0, 0.0002, 7))
+            self.current_configuration)
         current_ee_so3 = current_ee_se3[0:3, 0:3]
         self.current_ee_position = current_ee_se3[0:3, 3]
         self.current_ee_rpy = self.so3_to_rpy(current_ee_so3)

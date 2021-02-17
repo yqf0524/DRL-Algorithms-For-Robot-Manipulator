@@ -7,7 +7,7 @@ import os
 
 class CriticNetwork(nn.Module):
     def __init__(self, beta, input_dims, fc1_dims, fc2_dims, fc3_dims,
-                 n_actions, name, chkpt_dir='model'):
+                 n_actions, name, chkpt_dir='TD3PG/model'):
         super(CriticNetwork, self).__init__()
         self.input_dims = input_dims
         self.fc1_dims = fc1_dims
@@ -29,6 +29,7 @@ class CriticNetwork(nn.Module):
         self.to(self.device)
 
     def forward(self, state, action):
+
         q1_action_value = self.fc1(T.cat([state, action], dim=1))
         q1_action_value = F.relu(q1_action_value)
         q1_action_value = self.fc2(q1_action_value)
@@ -51,13 +52,14 @@ class CriticNetwork(nn.Module):
 
 class ActorNetwork(nn.Module):
     def __init__(self, alpha, input_dims, fc1_dims, fc2_dims, fc3_dims,
-                 n_actions, name, chkpt_dir='model'):
+                 n_actions, max_action, name, chkpt_dir='TD3PG/model'):
         super(ActorNetwork, self).__init__()
         self.input_dims = input_dims
         self.fc1_dims = fc1_dims
         self.fc2_dims = fc2_dims
         self.fc3_dims = fc3_dims
         self.n_actions = n_actions
+        self.max_action = max_action
         self.name = name
         self.checkpoint_dir = chkpt_dir
         self.checkpoint_file = os.path.join(self.checkpoint_dir, name + '_td3')
@@ -80,7 +82,7 @@ class ActorNetwork(nn.Module):
         prob = self.fc3(prob)
         prob = F.relu(prob)
 
-        mu = T.tanh(self.mu(prob))
+        mu = T.tanh(self.mu(prob)) * T.tensor(self.max_action).to(self.device)
 
         return mu
 

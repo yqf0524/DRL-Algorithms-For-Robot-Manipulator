@@ -120,22 +120,25 @@ class PositionControl(MainEnv):
         self.observation_space_high = np.deg2rad(self.iiwa.joint_limit)
         self.observation_space_low = np.deg2rad(-self.iiwa.joint_limit)
         self.current_action = np.zeros(7)
-        self.start_position = self.iiwa.current_ee_position
         self.target_position = np.zeros(3)
+        self.start_position = self.iiwa.current_ee_position
         self.target_rpy = self.iiwa.current_ee_rpy
         self.tol_position = 1e-4  # 0.0001 meter = 0.1 mm, Euclidean Distance
         self.tol_orientation = 2e-3  # approximate 0.115, Euclidean Distance
         self.is_done_counter = 0
 
     def reset(self):
+        self.iiwa.current_configuration = self.iiwa.start_configuration
         current_state = self.iiwa.current_configuration
+        self.iiwa.update_kinematic()
+        self.start_position = self.iiwa.current_ee_position
         return current_state
 
     def step(self, action):
         action = self.iiwa.clip_velocity(action)
         next_state = self.iiwa.current_configuration + action
         # collision = self.iiwa.check_collision(next_state)
-        in_joint_limit, next_state = self.iiwa.check_joint_limit(next_state)
+        in_joint_limit, next_state = self.iiwa.clip_joint_position(next_state)
         info = "Everything is fine."
         # if collision:
         #     reward = -100.0
@@ -148,7 +151,10 @@ class PositionControl(MainEnv):
         ee_position = self.iiwa.current_ee_position
         reward, done = self.compute_reward(ee_rpy, ee_position)
         if not in_joint_limit:
-            reward += -0.1
+            self.is_done_counter += 1
+            print(self.is_done_counter)
+            reward += -1
+
         return next_state, reward, done, info
 
     def render(self):
@@ -159,17 +165,11 @@ class PositionControl(MainEnv):
         rpy_error = np.linalg.norm(ee_rpy - self.target_rpy)
         position_error = np.linalg.norm(ee_position - self.target_position)
         reward = -(rpy_error + position_error)
-        is_done = self._is_done(rpy_error, position_error)
+        is_done = position_error <= self.tol_position  # rpy_error <= self.tol_orientation
+        if is_done:
+            reward = -rpy_error / self.tol_orientation + \
+                     position_error / self.tol_position
         return reward, is_done
-
-    def _is_done(self, orientation_error, position_error):
-        if orientation_error <= self.tol_orientation and position_error <= self.tol_position:
-            self.is_done_counter += 1
-            if self.is_done_counter > 5:
-                return 1
-            else:
-                self.is_done_counter = 0
-                return 0
 
 
 class VelocityControl(MainEnv):
